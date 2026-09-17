@@ -17,7 +17,7 @@ from gouldmine.rewards import dummy_reward_fn
 
 num_updates = 1000
 num_epochs = 4
-batch_size = 1024
+batch_size = 128
 minibatch_size = 32
 learning_rate = 0.001
 num_minibatches = batch_size // minibatch_size
@@ -38,10 +38,14 @@ wandb.init(
     },
 )
 
+optimizer = optax.chain(
+    optax.clip_by_global_norm(0.5), optax.adam(learning_rate=learning_rate)
+)
+
 agent = PianoPPOAgent(
     rngs=rngs,
     model=PianoActorCriticMLP,
-    optimizer=optax.adam(learning_rate=learning_rate),
+    optimizer=optimizer,
     reward_fn=dummy_reward_fn,
 )
 
