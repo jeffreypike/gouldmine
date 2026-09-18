@@ -2,11 +2,14 @@
 Training run.
 """
 
+import os
 import time
 
 import jax
+import jax.numpy as jnp
 import numpy as np
 import optax
+import orbax.checkpoint as ocp
 from flax import nnx
 from tqdm.rich import trange
 
@@ -98,11 +101,15 @@ for j in pbar:
     step_duration = time.time() - start_time
     total_env_steps = batch_size * agent.max_steps
     steps_per_second = total_env_steps / step_duration
+    mean_ks, mean_fatigue, mean_div = jax.tree.map(jnp.mean, trajectories.metrics)
 
     wandb.log(
         {
-            "update": j,
+            # "update": j,
             "rollout/mean_reward": mean_reward.item(),
+            "reward/ks_score": mean_ks.item(),
+            "reward/fatigue_penalty": mean_fatigue.item(),
+            "reward/diversity_penalty": mean_div.item(),
             "train/loss_total": mean_losses[0].item(),
             "train/loss_policy": mean_losses[1].item(),
             "train/loss_value": mean_losses[2].item(),
@@ -117,5 +124,26 @@ for j in pbar:
         val_loss=f"{mean_losses[2].item():.4f}",
         sps=f"{int(steps_per_second)}",
     )
+
+print("Saving Gouldmine checkpoint...")
+graphdef, state = nnx.split(agent.model)
+
+checkpoint_dir = os.path.join(wandb.run.dir, "gouldmine_v1_ckpt")
+checkpointer = ocp.StandardCheckpointer()
+checkpointer.save(os.path.abspath(checkpoint_dir), state, force=True)
+
+print("Generating sample song...")
+sample_song = jnp.full((agent.max_steps,), agent.num_actions, dtype=jnp.int32)
+for t in range(agent.max_steps):
+    logits, _ = agent.model(sample_song, t)
+    logits = logits[t]
+    next_action = jnp.argmax(logits)
+    sample_song = sample_song.at[t].set(next_action)
+sample_song_np = np.array(sample_song)
+sample_path = os.path.join(wandb.run.dir, "sample_output.npy")
+np.save(sample_path, sample_song_np)
+print(f"Sample saved to {sample_path}")
+print("Final Song Output:")
+print(sample_song_np)
 
 wandb.finish()

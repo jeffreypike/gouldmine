@@ -14,6 +14,7 @@ class SongTrajectory(NamedTuple):
     rewards: jnp.ndarray
     log_probs: jnp.ndarray
     values: jnp.ndarray
+    metrics: tuple
 
 
 class PianoPPOAgent(nnx.Module):
@@ -65,20 +66,24 @@ class PianoPPOAgent(nnx.Module):
             current_key, sample_key = jax.random.split(current_key)
 
             action, log_prob, value = self.sample(sample_key, song, time)
-            reward = self.reward_fn(song, action)
+            total_reward, aux_metrics = self.reward_fn(song, action)
 
             next_song = song.at[time].set(action)
             next_carry = (next_song, current_key)
 
-            return next_carry, (reward, log_prob, value)
+            return next_carry, (total_reward, log_prob, value, aux_metrics)
 
         time_steps = jnp.arange(self.max_steps)
         final_carry, step_outputs = step_song(init_carry, time_steps)
-        rewards, log_probs, values = step_outputs
+        rewards, log_probs, values, aux_metrics = step_outputs
         final_song = final_carry[0]
 
         return SongTrajectory(
-            song=final_song, rewards=rewards, log_probs=log_probs, values=values
+            song=final_song,
+            rewards=rewards,
+            log_probs=log_probs,
+            values=values,
+            metrics=aux_metrics,
         )
 
     @nnx.vmap(in_axes=(None, 0))
