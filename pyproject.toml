@@ -11,7 +11,8 @@ dependencies = [
     "rich>=15.0.0",
     "tdqm>=0.0.1",
     "wandb>=0.30.0",
-    "jax[cuda12]; sys_platform == 'linux'"
+    "jax[cuda12]; sys_platform == 'linux'",
+    "pretty-midi>=0.2.11.post0",
 ]
 
 [dependency-groups]

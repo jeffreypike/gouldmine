@@ -137,7 +137,8 @@ checkpointer.save(os.path.abspath(checkpoint_dir), state, force=True)
 print("Generating sample song...")
 sample_song = jnp.full((agent.max_steps,), agent.num_actions, dtype=jnp.int32)
 for t in range(agent.max_steps):
-    logits, _ = agent.model(sample_song, t)
+    time = jnp.array(t)
+    logits, _ = agent.model(sample_song, time)
     logits = logits[t]
     next_action = jnp.argmax(logits)
     sample_song = sample_song.at[t].set(next_action)
