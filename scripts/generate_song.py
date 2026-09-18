@@ -43,7 +43,7 @@ def generate_song(model, max_steps=320, num_actions=14):
 
 
 if __name__ == "__main__":
-    CKPT_PATH = ".wandb/latest-run/files/gouldmine_v1_ckpt"
+    CKPT_PATH = "./wandb/latest-run/files/gouldmine_v1_ckpt"
 
     model = load_checkpoint(CKPT_PATH, PianoActorCriticMLP)
     song_array = generate_song(model, max_steps=320)
