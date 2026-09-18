@@ -20,8 +20,9 @@ def load_checkpoint(checkpoint_dir, model_class, num_actions=14):
     _, abstract_state = nnx.split(model)
 
     checkpointer = ocp.StandardCheckpointer()
+
     restored_state = checkpointer.restore(
-        os.path.abspath(checkpoint_dir), item=abstract_state
+        os.path.abspath(checkpoint_dir), abstract_state
     )
 
     nnx.update(model, restored_state)
