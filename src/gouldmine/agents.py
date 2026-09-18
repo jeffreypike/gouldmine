@@ -36,7 +36,9 @@ class PianoPPOAgent(nnx.Module):
         self.num_actions = num_keys + 2  # add rest and sustain
         self.model = model(rngs=rngs, num_actions=self.num_actions)
         self.optimizer = nnx.Optimizer(self.model, optimizer, wrt=nnx.Param)
-        self.reward_fn = reward_fn
+        self.reward_fn = lambda song, action: reward_fn(
+            song, action, num_actions=self.num_actions
+        )
         self.max_steps = 16 * max_bars
         self.gamma = gamma
         self.lamda = lamda

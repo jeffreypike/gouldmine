@@ -16,7 +16,7 @@ from tqdm.rich import trange
 import wandb
 from gouldmine.agents import PianoPPOAgent
 from gouldmine.modules import PianoActorCriticMLP
-from gouldmine.rewards import dummy_reward_fn
+from gouldmine.rewards import sparse_harmonic_reward
 
 num_updates = 1000
 num_epochs = 4
@@ -24,6 +24,7 @@ batch_size = 128
 minibatch_size = 32
 learning_rate = 0.001
 num_minibatches = batch_size // minibatch_size
+num_keys = 12
 
 seed = 10566
 key = jax.random.PRNGKey(seed=seed)
@@ -49,7 +50,8 @@ agent = PianoPPOAgent(
     rngs=rngs,
     model=PianoActorCriticMLP,
     optimizer=optimizer,
-    reward_fn=dummy_reward_fn,
+    reward_fn=sparse_harmonic_reward,
+    num_keys=num_keys,
 )
 
 pbar = trange(num_updates, desc="Training Agent")
