@@ -4,6 +4,7 @@ Agent plays music!
 
 import os
 
+import jax
 import jax.numpy as jnp
 import numpy as np
 import orbax.checkpoint as ocp
@@ -29,14 +30,15 @@ def load_checkpoint(checkpoint_dir, model_class, num_actions=14):
     return model
 
 
-def generate_song(model, max_steps=320, num_actions=14):
+def generate_song(model, key, max_steps=320, temperature=0.8, num_actions=14):
     song = jnp.full((max_steps,), num_actions, dtype=jnp.int32)
 
     for t in range(max_steps):
         time = jnp.array(t)
         logits, _ = model(song, time)
 
-        action = jnp.argmax(logits[t])
+        key, subkey = jax.random.split(key)
+        action = jax.random.categorical(subkey, logits[t] / temperature)
         song = song.at[t].set(action)
 
     return np.array(song)
@@ -46,7 +48,9 @@ if __name__ == "__main__":
     CKPT_PATH = "./wandb/latest-run/files/gouldmine_v1_ckpt"
 
     model = load_checkpoint(CKPT_PATH, PianoActorCriticMLP)
-    song_array = generate_song(model, max_steps=320)
+    seed = 10566
+    key = jax.random.PRNGKey(seed)
+    song_array = generate_song(key, model, max_steps=320)
 
     print("Raw output array")
     print(song_array)
