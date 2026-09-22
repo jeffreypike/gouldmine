@@ -48,7 +48,7 @@ def sparse_harmonic_reward(
     repetition_threshold=3,
 ):
     """
-    Reward harmonic compatibility while penalizing the agent for not leaving any space or repeating notes.
+    Reward harmonic understanding while penalizing the agent for not leaving any space or repeating notes.
     """
     is_padding = jnp.argmax(song == num_actions)
     current_time = jnp.where(jnp.any(is_padding), jnp.argmax(is_padding), song.shape[0])
@@ -84,4 +84,8 @@ def sparse_harmonic_reward(
     )
 
     total_reward = ks_reward - fatigue_penalty - diversity_penalty
-    return total_reward, (ks_reward, fatigue_penalty, diversity_penalty)
+    return total_reward, {
+        "ks": ks_reward,
+        "fatigue": fatigue_penalty,
+        "diversity": diversity_penalty,
+    }

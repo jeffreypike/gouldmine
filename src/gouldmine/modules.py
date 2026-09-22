@@ -2,9 +2,9 @@
 Deep learning modules
 """
 
-import jax.numpy as jnp
+from beartype import beartype
 from flax import nnx
-from jaxtyping import Array, Float32, Int32
+from jaxtyping import Array, Float32, Int8, jaxtyped
 
 
 class PianoActorCriticMLP(nnx.Module):
@@ -24,26 +24,22 @@ class PianoActorCriticMLP(nnx.Module):
             num_embeddings=self.num_actions + 1, features=embed_dim, rngs=rngs
         )
 
-        self.input = nnx.Linear(embed_dim * self.song_length + 1, d_hidden, rngs=rngs)
+        self.input = nnx.Linear(embed_dim * self.song_length, d_hidden, rngs=rngs)
         self.hidden_layers = nnx.List(
             [nnx.Linear(d_hidden, d_hidden, rngs=rngs) for _ in range(n_hidden)]
         )
         self.policy = nnx.Linear(d_hidden, self.num_actions, rngs=rngs)
         self.value = nnx.Linear(d_hidden, 1, rngs=rngs)
 
+    @jaxtyped(typechecker=beartype)
     def __call__(
-        self, song: Int32[Array, "... song_length"], time: Int32[Array, "..."]
+        self, song: Int8[Array, "... song_length"]
     ) -> tuple[Float32[Array, "... num_actions"], Float32[Array, "..."]]:
         song_encoding = self.song_encoding(song)
         batch_shape = song_encoding.shape[:-2]
-        song_encoding = song_encoding.reshape(
+        x = song_encoding.reshape(
             batch_shape + (-1,)
         )  # flatten song_length x embed_dim
-
-        time_rescaled = time.astype(jnp.float32) / self.song_length
-        time_rescaled = jnp.expand_dims(time_rescaled, -1)
-
-        x = jnp.concat([song_encoding, time_rescaled], axis=-1)
         x = self.input(x)
         x = nnx.relu(x)
         for layer in self.hidden_layers:

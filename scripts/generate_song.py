@@ -31,7 +31,7 @@ def load_checkpoint(checkpoint_dir, model_class, num_actions=14):
 
 
 def generate_song(key, model, max_steps=320, temperature=0.8, num_actions=14):
-    song = jnp.full((max_steps,), num_actions, dtype=jnp.int32)
+    song = jnp.full((max_steps,), num_actions, dtype=jnp.int8)
 
     for t in range(max_steps):
         time = jnp.array(t)

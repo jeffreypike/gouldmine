@@ -2,19 +2,29 @@
 Agentic pianists.
 """
 
-from typing import NamedTuple
+import dataclasses
 
+import chex
 import jax
 import jax.numpy as jnp
 from flax import nnx
+from jaxtyping import Array
 
 
-class SongTrajectory(NamedTuple):
-    song: jnp.ndarray
-    rewards: jnp.ndarray
-    log_probs: jnp.ndarray
-    values: jnp.ndarray
-    metrics: tuple
+@chex.dataclass
+class SongTrajectory:
+    song: Array
+    rewards: Array
+    log_probs: Array
+    values: Array
+    metrics: dict[str, Array] = dataclasses.field(default_factory=dict)
+
+
+@chex.dataclass
+class PPOMetrics:
+    policy_loss: Array
+    value_loss: Array
+    entropy_loss: Array
 
 
 class PianoPPOAgent(nnx.Module):
@@ -46,8 +56,8 @@ class PianoPPOAgent(nnx.Module):
         self.c_value = c_value
         self.c_entropy = c_entropy
 
-    def sample(self, key, song, time):
-        logits, value = self.model(song, time)
+    def sample(self, key, song):
+        logits, value = self.model(song)
         action = jax.random.categorical(key, logits)
         full_log_probs = jax.nn.log_softmax(logits)
 
@@ -59,7 +69,7 @@ class PianoPPOAgent(nnx.Module):
     @nnx.jit
     @nnx.vmap(in_axes=(None, 0))
     def collect_trajectories(self, key):
-        init_song = jnp.full(self.max_steps, self.num_actions, dtype=jnp.int32)
+        init_song = jnp.full(self.max_steps, self.num_actions, dtype=jnp.int8)
         init_carry = (init_song, key)
 
         @nnx.scan
@@ -67,7 +77,7 @@ class PianoPPOAgent(nnx.Module):
             song, current_key = carry
             current_key, sample_key = jax.random.split(current_key)
 
-            action, log_prob, value = self.sample(sample_key, song, time)
+            action, log_prob, value = self.sample(sample_key, song)
             total_reward, aux_metrics = self.reward_fn(song, action)
 
             next_song = song.at[time].set(action)
@@ -91,8 +101,11 @@ class PianoPPOAgent(nnx.Module):
     @nnx.vmap(in_axes=(None, 0))
     def estimate_advantages(self, trajectory):
         rewards, values = trajectory.rewards, trajectory.values
+        chex.assert_rank([rewards, values], 1)
 
         next_values = jnp.pad(values[1:], (0, 1), mode="constant")
+        chex.assert_equal_shape([rewards, values, next_values])
+
         td_residuals = rewards + self.gamma * next_values - values
 
         def get_advantages(advantage_tp1, td_t):
@@ -107,6 +120,8 @@ class PianoPPOAgent(nnx.Module):
         target_returns = advantages + values
         return advantages, target_returns
 
+    @chex.assert_max_traces(n=1)
+    @chex.chexify
     @nnx.jit
     def update_model(
         self, minibatch_trajectories, minibatch_advantages, minibatch_returns
@@ -115,11 +130,16 @@ class PianoPPOAgent(nnx.Module):
             def ppo_loss(model, trajectory, advantages, target_returns):
                 log_probs = trajectory.log_probs
 
+                chex.assert_equal_shape([log_probs, advantages, target_returns])
+
                 @nnx.vmap(in_axes=(None, 0))
                 def causal_forward(song, time):
                     time_indices = jnp.arange(self.max_steps)
-                    causal_song = jnp.where(time_indices < time, song, self.num_actions)
-                    logits, value = model(causal_song, time)
+                    padding_token = jnp.array(
+                        self.num_actions, dtype=jnp.int8
+                    )  # using python int will upcast song
+                    causal_song = jnp.where(time_indices < time, song, padding_token)
+                    logits, value = model(causal_song)
                     return logits, value
 
                 song = trajectory.song
@@ -153,19 +173,26 @@ class PianoPPOAgent(nnx.Module):
                     + self.c_value * loss_value
                     + self.c_entropy * loss_entropy
                 )
-                return loss_ppo, (loss_clipped, loss_value, loss_entropy)
+                metrics = PPOMetrics(
+                    policy_loss=loss_clipped,
+                    value_loss=loss_value,
+                    entropy_loss=loss_entropy,
+                )
+                return loss_ppo, metrics
 
             batch_loss, batch_aux = nnx.vmap(ppo_loss, in_axes=(None, 0, 0, 0))(
                 model, trajectories, advantages, returns
             )
             loss = batch_loss.mean()
-            aux = tuple(x.mean() for x in batch_aux)
+            aux = jax.tree.map(lambda x: x.mean(), batch_aux)
             return loss, aux
 
         grad_fn = nnx.value_and_grad(loss_fn, has_aux=True)
         (loss, aux_metrics), grads = grad_fn(
             self.model, minibatch_trajectories, minibatch_advantages, minibatch_returns
         )
+
+        chex.assert_tree_all_finite(grads)
 
         self.optimizer.update(self.model, grads)
         return loss, aux_metrics
