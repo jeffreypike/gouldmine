@@ -37,7 +37,7 @@ def generate_song(key, model, max_steps=320, temperature=0.8, num_actions=14):
         logits, _ = model(song)
 
         key, subkey = jax.random.split(key)
-        action = jax.random.categorical(subkey, logits / temperature)
+        action = jax.random.categorical(subkey, logits / temperature).astype(jnp.int8)
         song = song.at[t].set(action)
 
     return np.array(song)
@@ -50,6 +50,7 @@ if __name__ == "__main__":
     seed = 10566
     key = jax.random.PRNGKey(seed)
     song_array = generate_song(key, model, max_steps=320)
+    song_array = song_array.astype(int)
 
     print("Raw output array")
     print(song_array)
