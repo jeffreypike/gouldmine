@@ -136,8 +136,8 @@ class PianoPPOAgent(nnx.Module):
         target_returns = advantages + values
         return advantages, target_returns
 
-    @jaxtyped(typechecker=beartype)
     @nnx.jit
+    @jaxtyped(typechecker=beartype)
     def update_model(
         self,
         minibatch_trajectories: SongTrajectory,
