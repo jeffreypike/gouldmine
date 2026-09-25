@@ -129,8 +129,8 @@ if __name__ == "__main__":
 
                 loss, aux_metrics = agent.update_model(
                     minibatch_trajectories,  # pyright: ignore[reportCallIssue]
-                    minibatch_advantages,
-                    minibatch_returns,
+                    minibatch_advantages,  # pyright: ignore[reportCallIssue]
+                    minibatch_returns,  # pyright: ignore[reportCallIssue]
                 )
                 epoch_losses.append(
                     [
@@ -188,7 +188,7 @@ if __name__ == "__main__":
     sample_song = jnp.full((agent.max_steps,), agent.num_actions, dtype=jnp.int8)
     for t in range(agent.max_steps):
         time = jnp.array(t)
-        logits, _ = agent.model(sample_song, time)
+        logits, _ = agent.model(sample_song)
         logits = logits[t]
         next_action = jnp.argmax(logits)
         sample_song = sample_song.at[t].set(next_action)

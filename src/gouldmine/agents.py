@@ -3,44 +3,55 @@ Agentic pianists.
 """
 
 import dataclasses
+from collections.abc import Callable
+from typing import Protocol
 
-import chex
 import jax
 import jax.numpy as jnp
-from flax import nnx
-from jaxtyping import Array
+import optax
+from beartype import beartype
+from flax import nnx, struct
+from jaxtyping import Array, Float32, Int8, Key, jaxtyped
 
 
-@chex.dataclass
+@struct.dataclass
 class SongTrajectory:
-    song: Array
-    rewards: Array
-    log_probs: Array
-    values: Array
+    song: Int8[Array, "... max_steps"]
+    rewards: Float32[Array, "... max_steps"]
+    log_probs: Float32[Array, "... max_steps"]
+    values: Float32[Array, "... max_steps"]
     metrics: dict[str, Array] = dataclasses.field(default_factory=dict)
 
 
-@chex.dataclass
+@struct.dataclass
 class PPOMetrics:
-    policy_loss: Array
-    value_loss: Array
-    entropy_loss: Array
+    policy_loss: Float32[Array, "..."]
+    value_loss: Float32[Array, "..."]
+    entropy_loss: Float32[Array, "..."]
+
+
+class PianoActorCritic(Protocol):
+    """The structural contract for any model plugged into the PianoPPOAgent."""
+
+    def __call__(
+        self, song: Int8[Array, "... max_steps"]
+    ) -> tuple[Float32[Array, "... num_actions"], Float32[Array, "..."]]: ...
 
 
 class PianoPPOAgent(nnx.Module):
     def __init__(
         self,
-        rngs,
-        model,
-        optimizer,
-        reward_fn,
-        num_keys=12,
-        max_bars=20,
-        gamma=0.99,
-        lamda=0.95,
-        epsilon=0.2,
-        c_value=0.5,
-        c_entropy=0.01,
+        rngs: nnx.Rngs,
+        model: Callable[..., PianoActorCritic],
+        optimizer: optax.GradientTransformation,
+        reward_fn: Callable[..., tuple[Array, dict[str, Array]]],
+        num_keys: int = 12,
+        max_bars: int = 20,
+        gamma: float = 0.99,
+        lamda: float = 0.95,
+        epsilon: float = 0.2,
+        c_value: float = 0.5,
+        c_entropy: float = 0.01,
     ):
         self.rngs = rngs
         self.num_actions = num_keys + 2  # add rest and sustain
@@ -56,9 +67,11 @@ class PianoPPOAgent(nnx.Module):
         self.c_value = c_value
         self.c_entropy = c_entropy
 
-    def sample(self, key, song):
+    def sample(
+        self, key: Key[Array, "..."], song: Int8[Array, "... song_length"]
+    ) -> tuple[Int8[Array, "..."], Float32[Array, "..."], Float32[Array, "..."]]:
         logits, value = self.model(song)
-        action = jax.random.categorical(key, logits)
+        action = jax.random.categorical(key, logits).astype(jnp.int8)
         full_log_probs = jax.nn.log_softmax(logits)
 
         log_probs = jnp.take_along_axis(
@@ -68,7 +81,7 @@ class PianoPPOAgent(nnx.Module):
 
     @nnx.jit
     @nnx.vmap(in_axes=(None, 0))
-    def collect_trajectories(self, key):
+    def collect_trajectories(self, key: Key[Array, "..."]) -> SongTrajectory:
         init_song = jnp.full(self.max_steps, self.num_actions, dtype=jnp.int8)
         init_carry = (init_song, key)
 
@@ -99,12 +112,15 @@ class PianoPPOAgent(nnx.Module):
         )
 
     @nnx.vmap(in_axes=(None, 0))
-    def estimate_advantages(self, trajectory):
+    @jaxtyped(typechecker=beartype)
+    def estimate_advantages(
+        self, trajectory: SongTrajectory
+    ) -> tuple[Float32[Array, "max_steps"], Float32[Array, "max_steps"]]:  # noqa: F821
         rewards, values = trajectory.rewards, trajectory.values
-        chex.assert_rank([rewards, values], 1)
+        assert rewards.ndim == values.ndim == 1, f"Expected 1D, got {rewards.shape}"
 
         next_values = jnp.pad(values[1:], (0, 1), mode="constant")
-        chex.assert_equal_shape([rewards, values, next_values])
+        assert rewards.shape == values.shape == next_values.shape
 
         td_residuals = rewards + self.gamma * next_values - values
 
@@ -120,17 +136,19 @@ class PianoPPOAgent(nnx.Module):
         target_returns = advantages + values
         return advantages, target_returns
 
-    @chex.assert_max_traces(n=1)
-    @chex.chexify
+    @jaxtyped(typechecker=beartype)
     @nnx.jit
     def update_model(
-        self, minibatch_trajectories, minibatch_advantages, minibatch_returns
-    ):
+        self,
+        minibatch_trajectories: SongTrajectory,
+        minibatch_advantages: Float32[Array, "minibatch max_steps"],
+        minibatch_returns: Float32[Array, "minibatch max_steps"],
+    ) -> tuple[Float32[Array, ""], PPOMetrics]:
         def loss_fn(model, trajectories, advantages, returns):
             def ppo_loss(model, trajectory, advantages, target_returns):
                 log_probs = trajectory.log_probs
 
-                chex.assert_equal_shape([log_probs, advantages, target_returns])
+                assert log_probs.shape == advantages.shape == target_returns.shape
 
                 @nnx.vmap(in_axes=(None, 0))
                 def causal_forward(song, time):
@@ -192,7 +210,15 @@ class PianoPPOAgent(nnx.Module):
             self.model, minibatch_trajectories, minibatch_advantages, minibatch_returns
         )
 
-        chex.assert_tree_all_finite(grads)
+        is_finite = jnp.all(
+            jnp.array([jnp.isfinite(x).all() for x in jax.tree.leaves(grads)])
+        )
+
+        def raise_if_nan(valid_bool):
+            if not valid_bool:
+                raise ValueError("FATAL: Exploding or vanishing gradients detected.")
+
+        jax.debug.callback(raise_if_nan, is_finite)
 
         self.optimizer.update(self.model, grads)
         return loss, aux_metrics
