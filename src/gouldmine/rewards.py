@@ -50,7 +50,7 @@ def sparse_harmonic_reward(
     """
     Reward harmonic understanding while penalizing the agent for not leaving any space or repeating notes.
     """
-    is_padding = jnp.argmax(song == num_actions)
+    is_padding = song == num_actions
     current_time = jnp.where(jnp.any(is_padding), jnp.argmax(is_padding), song.shape[0])
 
     ks_reward = krumhansl_schmuckler(song, action, num_actions)

@@ -156,7 +156,7 @@ if __name__ == "__main__":
                     "fatigue", jnp.array(0.0)
                 ).item(),
                 "reward/diversity_penalty": mean_reward_metrics.get(
-                    "divergence", jnp.array(0.0)
+                    "diversity", jnp.array(0.0)
                 ).item(),
                 "train/loss_total": mean_losses[0].item(),
                 "train/loss_policy": mean_losses[1].item(),
@@ -189,7 +189,6 @@ if __name__ == "__main__":
     for t in range(agent.max_steps):
         time = jnp.array(t)
         logits, _ = agent.model(sample_song)
-        logits = logits[t]
         next_action = jnp.argmax(logits)
         sample_song = sample_song.at[t].set(next_action)
     sample_song_np = np.array(sample_song)
