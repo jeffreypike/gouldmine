@@ -34,8 +34,7 @@ def generate_song(key, model, max_steps=320, temperature=0.8, num_actions=14):
     song = jnp.full((max_steps,), num_actions, dtype=jnp.int8)
 
     for t in range(max_steps):
-        time = jnp.array(t)
-        logits, _ = model(song, time)
+        logits, _ = model(song)
 
         key, subkey = jax.random.split(key)
         action = jax.random.categorical(subkey, logits / temperature)
